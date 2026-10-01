@@ -40,6 +40,15 @@ class Mymodel():
             paths.append(tokens)
         return paths
 
+    def _get_parameter_token_paths(self, chosen_fn: FunctionDefinition) -> list[list[int]]:
+        paths = []
+        for key in chosen_fn.parameters.keys():
+            tokens = self.model.encode(f"\"{key}\" : ")
+            if hasattr(tokens, "tolist"):
+                tokens = tokens.tolist()[0]
+            paths.append(tokens)
+        return paths
+
     def _build_prompt(self, prompt: str, fn_defs: list[FunctionDefinition]) -> str:
         """
         Build the prompt for the model.
@@ -54,93 +63,75 @@ class Mymodel():
             f"JSON:\n"
         )
 
+    def _autoregressive_generate(self, raw_logits: list[float], input_ids: list[int]) -> int:
+        #   1. Turn raw logits into probabilities (Softmax)
+        logits_arr = np.array(raw_logits)
+        exp_logits = np.exp(logits_arr - np.max(logits_arr))
+        probs = exp_logits / np.sum(exp_logits)
+        #   2. Pick which token to select:
+        next_token_id = int(np.argmax(probs))
+        input_ids.append(next_token_id)
+        decoded = self.model.decode([next_token_id])
+        print(f"{decoded}", end="", flush=True)
+
+        return next_token_id
+
+    def _mask_logits(self, max_new_tokens: int, paths: list[list[int]], input_ids: list[int]) -> list[any]:
+        generated_tokens = []
+
+        for _ in range(max_new_tokens):
+            raw_logits = self.model.get_logits_from_input_ids(input_ids)
+
+            step = len(generated_tokens)
+            valid_token_ids = []
+            for path in paths:
+                if step < len(path) and path[:step] == generated_tokens:
+                    valid_token_ids.append(path[step])
+            if not valid_token_ids:
+                break
+
+            mask = np.full_like(raw_logits, -np.inf)
+            for t in valid_token_ids:
+                mask[t] = 0.0
+            
+            filtered_logits = raw_logits + mask
+            next_token_id = self._autoregressive_generate(filtered_logits, input_ids)
+            generated_tokens.append(next_token_id)
+        return generated_tokens
+
     def generate(self, prompt: str, fn_defs: list[FunctionDefinition]) -> None:
         if self.model is None:
             raise Exception("Model not loaded")
         
         input_ids = self.model.encode(self._build_prompt(prompt, fn_defs)).tolist()[0]
         initial_length = len(input_ids)
-        input_ids.extend(self.model.encode("{\n  \"name\": \"").tolist()[0])
-        print("{\n  \"name\": \"", end="", flush=True)
+        input_ids.extend(self.model.encode("{\"name\": \"").tolist()[0])
+        print("{\"name\": \"", end="", flush=True)
 
-        # =========================================================================
-        # STEP 1: Set up generation parameters
-        # =========================================================================
-        # - Define a safety limit: max_new_tokens (e.g. 64 or 128) to prevent infinite loops.
         max_new_tokens = 32
         paths = self._get_function_token_paths(fn_defs)
-        generated_fn_tokens = []
+        generated_fn_tokens = self._mask_logits(max_new_tokens, paths, input_ids)
 
-        for _ in range(max_new_tokens):
-            raw_logits = self.model.get_logits_from_input_ids(input_ids)
+        selected_function = self.model.decode(generated_fn_tokens)
+        chosen_fn = next(fn for fn in fn_defs if fn.name == selected_function)
+        input_ids.extend(self.model.encode("\", \"parameters\": { ").tolist()[0])
+        print("\", \"parameters\": { ", end="", flush=True)
+        paths = self._get_parameter_token_paths(chosen_fn)
 
-            step = len(generated_fn_tokens)
-            valid_token_ids = []
-            for path in paths:
-                if step < len(path) and path[:step] == generated_fn_tokens:
-                    valid_token_ids.append(path[step])
+        for _ in paths:
+            generated_param_tokens = self._mask_logits(max_new_tokens, paths, input_ids)
 
-            if not valid_token_ids:
-                break
+            count = 0
+            for _ in range(max_new_tokens):
+                raw_logits = self.model.get_logits_from_input_ids(input_ids)
+                next_token_id = self._autoregressive_generate(raw_logits, input_ids)
+                decoded = self.model.decode([next_token_id])
+                if "," in decoded:
+                    break
+                count += decoded.count("}")
+                if count >= 2:
+                    break 
 
-            # apply mask to logits
-            mask = np.full_like(raw_logits, -np.inf)
-            for t in valid_token_ids:
-                mask[t] = 0.0
-            
-            filtered_logits = raw_logits + mask
-
-            logits_arr = np.array(filtered_logits)
-            exp_logits = np.exp(logits_arr - np.max(logits_arr))
-            probs = exp_logits / np.sum(exp_logits)
-            next_token_id = int(np.argmax(probs))
-            input_ids.append(next_token_id)
-            generated_fn_tokens.append(next_token_id)
-            decoded = self.model.decode([next_token_id])
-            print(f"{decoded}", end="", flush=True)
-            
-
-
-        # =========================================================================
-        # STEP 2: The Autoregressive Generation Loop
-        # =========================================================================
-        # Loop for up to max_new_tokens:
-        input_ids.extend(self.model.encode("\",\n  \"parameters\": {\n    ").tolist()[0])
-        print("\",\n  \"parameters\": {\n    ", end="", flush=True)
-
-        for _ in range(max_new_tokens):
-        #
-        #   2.1. Get raw logits for the next token:
-            raw_logits = self.model.get_logits_from_input_ids(input_ids)
-        #        (raw_logits is a list[float] of length `vocab_size` containing unnormalized scores)
-        #
-        #   2.2. Turn raw logits into probabilities (Softmax)
-            logits_arr = np.array(raw_logits)
-            exp_logits = np.exp(logits_arr - np.max(logits_arr))
-            probs = exp_logits / np.sum(exp_logits)
-        #        Option B (Pure Python math):
-        #          e^x / sum(e^x) with max-subtraction trick to avoid overflow.
-        #
-        #   2.3. Pick which token to select:
-            next_token_id = int(np.argmax(probs))
-        #
-        #   2.4. Check stopping condition (EOS):
-        #        - If next_token_id == eos_token_id:
-        #            Stop the loop immediately!
-        #
-        #   2.5. Append chosen token to sequence:
-        #        - input_ids.append(next_token_id)
-        #        (Now input_ids includes the new token, ready for the next iteration)
-
-            input_ids.append(next_token_id)
-            decoded = self.model.decode([next_token_id])
-            print(f"{decoded}", end="", flush=True)
-        
-        # =========================================================================
-        # STEP 3: Decode generated tokens to text
-        # =========================================================================
-        # - Extract only the newly generated tokens: input_ids[initial_length:]
-        # - Decode them back to string: self.model.decode(generated_tokens)
         # generated_tokens = input_ids[initial_length:]
         # generated_text = self.model.decode(generated_tokens)
         # print(f"Generated text: \n{generated_text}")

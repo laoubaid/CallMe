@@ -8,10 +8,11 @@ from callme.schemas import FunctionDefinition
 from llm_sdk import Small_LLM_Model
 
 class Mymodel():
-    def __init__(self, model_name: str = "Qwen/Qwen3-0.6B"):
+    def __init__(self, model_name: str = "Qwen/Qwen3-0.6B", max_new_tokens: int = 32):
         self.model_name = model_name
         self.model: Small_LLM_Model | None = None
         self.vocab: dict[str, int] | None = None
+        self.max_new_tokens = max_new_tokens
 
     def load_model(self) -> None:
         try:
@@ -64,22 +65,17 @@ class Mymodel():
         )
 
     def _autoregressive_generate(self, raw_logits: list[float], input_ids: list[int]) -> int:
-        #   1. Turn raw logits into probabilities (Softmax)
-        logits_arr = np.array(raw_logits)
-        exp_logits = np.exp(logits_arr - np.max(logits_arr))
-        probs = exp_logits / np.sum(exp_logits)
-        #   2. Pick which token to select:
-        next_token_id = int(np.argmax(probs))
+        next_token_id = int(np.argmax(raw_logits))
         input_ids.append(next_token_id)
         decoded = self.model.decode([next_token_id])
         print(f"{decoded}", end="", flush=True)
 
         return next_token_id
 
-    def _mask_logits(self, max_new_tokens: int, paths: list[list[int]], input_ids: list[int]) -> list[any]:
+    def _mask_logits(self, paths: list[list[int]], input_ids: list[int]) -> list[any]:
         generated_tokens = []
 
-        for _ in range(max_new_tokens):
+        for _ in range(self.max_new_tokens):
             raw_logits = self.model.get_logits_from_input_ids(input_ids)
 
             step = len(generated_tokens)
@@ -102,27 +98,28 @@ class Mymodel():
     def generate(self, prompt: str, fn_defs: list[FunctionDefinition]) -> None:
         if self.model is None:
             raise Exception("Model not loaded")
-        
+
         input_ids = self.model.encode(self._build_prompt(prompt, fn_defs)).tolist()[0]
         initial_length = len(input_ids)
+
         input_ids.extend(self.model.encode("{\"name\": \"").tolist()[0])
         print("{\"name\": \"", end="", flush=True)
 
-        max_new_tokens = 32
         paths = self._get_function_token_paths(fn_defs)
-        generated_fn_tokens = self._mask_logits(max_new_tokens, paths, input_ids)
+        generated_fn_tokens = self._mask_logits(paths, input_ids)
 
         selected_function = self.model.decode(generated_fn_tokens)
         chosen_fn = next(fn for fn in fn_defs if fn.name == selected_function)
+
         input_ids.extend(self.model.encode("\", \"parameters\": { ").tolist()[0])
         print("\", \"parameters\": { ", end="", flush=True)
         paths = self._get_parameter_token_paths(chosen_fn)
 
         for _ in paths:
-            generated_param_tokens = self._mask_logits(max_new_tokens, paths, input_ids)
+            self._mask_logits(paths, input_ids)
 
             count = 0
-            for _ in range(max_new_tokens):
+            for _ in range(self.max_new_tokens):
                 raw_logits = self.model.get_logits_from_input_ids(input_ids)
                 next_token_id = self._autoregressive_generate(raw_logits, input_ids)
                 decoded = self.model.decode([next_token_id])
@@ -132,19 +129,13 @@ class Mymodel():
                 if count >= 2:
                     break 
 
-        # generated_tokens = input_ids[initial_length:]
-        # generated_text = self.model.decode(generated_tokens)
-        # print(f"Generated text: \n{generated_text}")
+        generated_tokens = input_ids[initial_length:]
+        generated_text = self.model.decode(generated_tokens)
         print("\n========================================================================\n")
 
+        # Parse generated text into FunctionCall schema
+        data = json.loads(generated_text)
 
-
-        # =========================================================================
-        # STEP 4: Parse generated text into FunctionCall schema
-        # =========================================================================
-        # - The output text should contain a JSON string, e.g. {"name": "...", "parameters": {...}}
-        # - Parse it using json.loads() (or regex/string cleaning if extra text was generated).
-        # - Validate and return as:
-        #   FunctionCall(prompt=prompt, name=data["name"], parameters=data["parameters"])
+        return FunctionCall(prompt=prompt, name=data["name"], parameters=data["parameters"])
 
         

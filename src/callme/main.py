@@ -1,4 +1,5 @@
-
+import json
+import os
 from callme.model import Mymodel
 from callme.parser import load_functions_definition, load_test_prompts, parse
 
@@ -12,7 +13,12 @@ def main():
     model.load_model()
     for test_prompt in test_prompts:
         print("Processing prompt: ", test_prompt.prompt)
-        model.generate(test_prompt.prompt, function_definitions)
+        function_call = model.generate(test_prompt.prompt, function_definitions)
+        function_calls.append(function_call)
+    # open or create if not exists
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    with open(args.output, 'w') as f:
+        json.dump([f.model_dump() for f in function_calls], f, indent=4)
     # try:
             
         

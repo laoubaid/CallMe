@@ -122,7 +122,7 @@ To constrain the function name, we pre-encode each candidate function name into 
 - `fn_add_numbers` $\rightarrow$ `[8822, 2891, 32964]`
 - `fn_greet` $\rightarrow$ `[8822, 1889, 3744]`
 
-At step $t$, only tokens that form valid prefixes of candidate paths are allowed. Once the function name is resolved, its parameters and type constraints are looked up to guide subsequent parameter decoding.
+At step $7$, only tokens that form valid prefixes of candidate paths are allowed. Once the function name is resolved, its parameters and type constraints are looked up to guide subsequent parameter decoding.
 
 ---
 ## Feedback & Review

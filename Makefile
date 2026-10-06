@@ -1,12 +1,13 @@
 
-all:
-	@echo "Hello World"
+all: run
 
 install:
 	@echo "Installing dependencies..."
+	uv sync
 
 run:
 	@echo "Running..."
+	uv run python -m src
 
 debug:
 	@echo "Debugging..."

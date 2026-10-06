@@ -1,4 +1,4 @@
-*This project has been created as part of the 42 curriculum by laoubaid.*
+*This project has been created as part of the 42 program*
 
 # Call Me Maybe - Function Calling with Constrained Decoding
 
@@ -123,3 +123,8 @@ To constrain the function name, we pre-encode each candidate function name into 
 - `fn_greet` $\rightarrow$ `[8822, 1889, 3744]`
 
 At step $t$, only tokens that form valid prefixes of candidate paths are allowed. Once the function name is resolved, its parameters and type constraints are looked up to guide subsequent parameter decoding.
+
+---
+## Feedback & Review
+> [!Note]
+Since this project is a part of 42 learning program, feedback, advice and constructive critiques are always welcome.

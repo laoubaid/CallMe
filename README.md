@@ -1,7 +1,7 @@
 *This project has been created as part of the 42 program*
 
 # Call Me Maybe - Function Calling with Constrained Decoding
-
+> **"An LLm is a sophisticated mathematical function that predicts what word comes next for a given piece of text."** Quote from `3Blue1Brown` LLM explanation video.
 ## Description
 
 **Call Me Maybe** is an introduction to function calling in Large Language Models (LLMs). Small parameter models (such as `Qwen/Qwen3-0.6B`) are notoriously unreliable when tasked with generating structured JSON outputs purely through natural language prompting. They frequently deviate from schemas, hallucinate keys, or produce syntactically broken JSON.
@@ -125,6 +125,13 @@ To constrain the function name, we pre-encode each candidate function name into 
 At step $7$, only tokens that form valid prefixes of candidate paths are allowed. Once the function name is resolved, its parameters and type constraints are looked up to guide subsequent parameter decoding.
 
 ---
+
+## Useful Resources
+- [What does AI look like?](https://www.ibm.com/think/news/what-does-ai-look-like)
+- [Large Language Models explained](https://youtu.be/LPZh9BOjkQs)
+- [Inside an LLM](https://youtu.be/wjZofJX0v4M)
+
+
 ## Feedback & Review
 > [!Note]
 Since this project is a part of 42 learning program, feedback, advice and constructive critiques are always welcome.
